@@ -1,6 +1,6 @@
 import os, requests, json, sys, traceback
 import pandas as pd
-from flask import Flask, url_for, render_template, jsonify, request, Response, redirect
+from flask import Flask, url_for, render_template, jsonify, request, Response, redirect,flash
 
 from flask.ext.login import LoginManager,current_user #added login manager
 from flask_pymongo import PyMongo
@@ -17,14 +17,17 @@ from web_app.greq import verify;
 from collections import OrderedDict
 from datetime import datetime
 from web_app.permutator import *
-from flask import request, redirect, render_template, url_for, flash
-from flask import Flask, url_for, render_template, jsonify, request, Response, redirect
 
 from flask_login import login_user, logout_user, login_required
 from .forms import LoginForm,SignupForm
 from .user import User
 import os, requests, json, sys, traceback
 #from flask_sslify import SSLify
+
+
+#for URL token generator
+from itsdangerous import URLSafeTimedSerializer,SignatureExpired,BadTimeSignature
+
 
 
 APP__ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -35,21 +38,22 @@ executor = ThreadPoolExecutor(2)
 monkey.patch_all() #monkey patch for thread pool related problems
 
 
+
 # Define the WSGI application object
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+#use config file for all configiguration
+app.config.from_pyfile('../config.py')
+
+
+
+#serializer for token generator, used in views.py
+serializer = URLSafeTimedSerializer(app.config['SECRET_KEY']);
+
+
 FORMAT = '%Y%m%d%H%M%S'
+print("MONGO_URL: "+app.config['MONGO_URI'])
 
-app.config['WTF_CSRF_ENABLED'] = True
-app.config['SECRET_KEY'] =  os.urandom(50);
 
-MONGO_URI = "mongodb://admin:admin123@ds149134.mlab.com:49134/heroku_2g2nnp30"
-
-if not MONGO_URI:
-    MONGO_URI = "mongodb://localhost:27017/api";
-print("MONGO_URL: "+MONGO_URI)
-
-app.config['MONGO_URI'] = MONGO_URI
 mongo = PyMongo(app); #initialize mongo
 
 #sslify = SSLify(app)
@@ -57,7 +61,6 @@ mongo = PyMongo(app); #initialize mongo
 lm = LoginManager()
 lm.init_app(app)
 lm.login_view = 'login'
-
 
 # gets the email status
 def get_json(url, data):

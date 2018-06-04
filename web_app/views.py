@@ -1,8 +1,8 @@
 from web_app import *
 from werkzeug.security import generate_password_hash
-
 import hashlib, binascii
-
+from .send_mail import send_mail
+from jinja2 import Environment, FileSystemLoader
 
 
 @app.route('/')
@@ -28,7 +28,7 @@ def login():
         if user and User.validate_login(user['password'], form.password.data):
            # return 'inside'
            # print("data: ",form.password.data)
-            if user["status"]=="deactivated":
+            if not user["verified"]:
                 return "Account has not been activated yet, Please check your mail and verify yourself."
             user_obj = User(user['_id'])
             login_user(user_obj)
@@ -50,26 +50,73 @@ def signup():
         
         pass_hash = generate_password_hash(form.password.data, method='pbkdf2:sha256')
         verified = True;
-        k = hashlib.pbkdf2_hmac('sha256', b'password', b'salt', 100000)
-        stoken = binascii.hexlify(k)
-        print(stoken)
+        
+        #generate token
+        email = form.email.data
+        #salt: to make two token with same email (future use, suppose we want token for session also)
+        token = serializer.dumps(email,salt='email-confirm')
+        
+        #send mail(recipient,subject,message)
+        confirm_link = url_for('confirm_email',token=token,_external=True)
+        msg = 'Your link is {0}'.format(confirm_link)
+        email_template = ""
+       # os.path.join(SITE_ROOT, 'static', 'email_template.html')
+        THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+        j2_env = Environment(loader=FileSystemLoader(THIS_DIR),trim_blocks=True)
+        email_template = j2_env.get_template('email_template.html').render(action_url=confirm_link);
+        
+        #print(email_template)
+        db_insert_successfull = False;
         # Insert the user in the DB
         try:
-            mongo.db.users.insert({"_id": form.username.data, "password": pass_hash, "email": form.email.data,"status":"activated","key":stoken})
+            mongo.db.users.insert({"_id": form.username.data, "password": pass_hash, "email": form.email.data,"verified":False})
+            db_insert_successfull = True
             #return 'Welcome! Thanks for signing up. Please follow this link in your email to activate your account:'
-            return 'Welcome! Thanks for signing up, Please follow to the link to Login <a href="/login">Login</a>'
-        # except DuplicateKeyError:
-        #     return 'user alreaday exist'
         except Exception as e:
             if 'duplicate key' in str(e):
-                return "A user with that credentials already exist!"
+                return '<p>A user with that credentials already exist!</p> <p><a style="text-decoration:none" href="/reset/{0}"><del>Reset Account </del> <br/>(DELETE ACCOUNT [temporary feature for testing] [clicking on this link will delete the account)</a></p>'.format(email)
             return  str(e);#"User already present in DB."
-
+        finally:
+            if db_insert_successfull:
+                req = send_mail(email,"Confirm Email",email_template);
+                print('Email Response:')
+                print('Status: {0}'.format(req.status_code))
+                print('Body:   {0}'.format(req.text))
+                print('-------------------')
+                if 200 == req.status_code:
+                    return '<p>Welcome! Thanks for signing up.</p><p>We have sent an email to your email address <b>{0}</b> so with any luck the great guardians<br /> of the internet will deliver this message to your <b>inbox</b>, or <b>spam</b> folder if you are lucky.</p><p>Please note, that the confirmation link will expire after 24 hours.</p> <p> <a href="/login">Click here </a> to go back to login page.'.format(email)
+                else:
+                    mongo.db.users.remove({"_id": form.username.data})
+                    return "<p>Insertion succesfull but couldn't connect to mail server to send mail <br/><b>(devnote: this is really really really bad, check if mail server is setup properly & credentials are correct)</b></p><p>Launcing Failsafe sequence</p> <p> Removing the user from database</p> <p>Please check logs to see what went wrong!"
         #user = mongo.db.users.find_one({"_id": form.username.data})
+        
+        
         
     if request.method == 'POST' and not form.validate_on_submit():
          flash("Invalid email, username or password!", category='error')
     return render_template('signup.html', title='signup', form=form)
+
+
+
+@app.route('/confirm_email/<token>')
+def confirm_email(token):
+    try:
+        email = serializer.loads(token, salt='email-confirm', max_age=1440) #age is 1440 seconds
+        mongo.db.users.update({"email":email},{ "$set": {"verified":True}},False, True);
+        #.update({condField: 'condValue'}, { $set: { dateField: new Date(2011, 0, 1)}}, false, true);
+    except SignatureExpired:
+        return "The token is expired"
+    except BadTimeSignature:
+        return "The token was not recognised"
+    return '<p><b>Verification successful</b></p><p><a href="/login">Go to login </a></p>'
+
+
+@app.route('/reset/<email>', methods=['GET', 'POST'])
+def reset(email):
+    mongo.db.users.remove({"email":email})
+    return '<p><del>Thanks for your request.</del></p><p><del>We have sent an email to your email address <b>{0}</b></del>. <p><del>Please click on the link in the mail to reset your account.</del></p><p><b>[DEV NOTE: CURRENTLY THIS DOESNT RESETS BUT DELETES THE ACCOUNT (temp feature)]<b></p> <p><br/>Deleted Succesfully</p></br><p><a href="/signup">Go back</a></p>'.format(email)
+
+
 
 
 @app.route('/inner', methods=['GET', 'POST'])

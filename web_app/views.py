@@ -46,7 +46,7 @@ def login():
 def signup():
     form = SignupForm()
     verified=False;
-    if request.method == 'POST':
+    if request.method == 'POST' :
         
         pass_hash = generate_password_hash(form.password.data, method='pbkdf2:sha256')
         verified = True;

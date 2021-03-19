@@ -17,7 +17,7 @@ grequests==0.3.0
 gunicorn==19.7.1
 idna==2.6
 itsdangerous==0.24
-Jinja2==2.9.6
+Jinja2==2.11.3
 MarkupSafe==1.0
 numpy==1.13.3
 pandas==0.20.3
